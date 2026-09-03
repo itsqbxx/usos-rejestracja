@@ -52,6 +52,10 @@ HERE = Path(__file__).resolve().parent
 LOGGED_IN_MARKERS = ("wyloguj", "log out", "logout")
 LOGGED_OUT_MARKERS = ("zaloguj", "log in", "sign in")
 
+# Lista rejestracji bezposrednich do grup w USOSweb UJ - punkt startowy trybu 'login'.
+REJESTRACJE_URL = ("https://usosweb.uj.edu.pl/kontroler.php"
+                   "?_action=dla_stud/rejestracja/brdg2/index")
+
 
 # --------------------------------------------------------------------------- #
 # konfiguracja
@@ -603,6 +607,17 @@ async def mode_run(cfg: Config, dry_run: bool) -> None:
             await ctx.close()
 
 
+def check_urls(urls: list[str]) -> None:
+    """Lepiej zatrzymac sie tu niz ogladac 404 w otwartym oknie przegladarki."""
+    bad = [u for u in urls if not u.lower().startswith(("http://", "https://"))]
+    if bad:
+        raise SystemExit(
+            "W config.yaml nie ma jeszcze prawdziwych adresow rejestracji:\n"
+            + "\n".join(f"  - {u}" for u in bad)
+            + "\n\nWejdz w USOSweb w 'Dla studentow -> Rejestracja -> bezposrednie do grup',"
+              "\notworz swoja rejestracje i wklej adres z paska przegladarki.")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Automatyczna rejestracja USOSweb UJ")
     ap.add_argument("mode", choices=["login", "list", "run", "test"])
@@ -619,15 +634,17 @@ def main() -> None:
         raise SystemExit(f"Nie znaleziono configu: {cfg_path}")
 
     if args.mode == "login":
-        url = args.url or (cfg.targets[0].url if cfg_path.exists() else
-                           "https://usosweb.uj.edu.pl/kontroler.php?_action=news/default")
-        asyncio.run(mode_login(cfg, url))
+        # Zawsze startujemy ze strony rejestracji bezposrednich, a nie z adresu
+        # celu z configu - ten bywa jeszcze niewypelnionym wzorcem i konczy sie 404.
+        asyncio.run(mode_login(cfg, args.url or REJESTRACJE_URL))
     elif args.mode == "list":
         url = args.url or (cfg.targets[0].url if cfg_path.exists() else None)
         if not url:
             raise SystemExit("Podaj --url do strony rejestracji.")
+        check_urls([url])
         asyncio.run(mode_list(cfg, url))
     else:
+        check_urls([t.url for t in cfg.targets])
         asyncio.run(mode_run(cfg, dry_run=(args.mode == "test")))
 
 

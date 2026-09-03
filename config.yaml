@@ -21,13 +21,13 @@ keepalive_s: 120      # co ile sekund odswiezac strone przed startem (podtrzyman
 #   selector - alternatywnie wlasny selektor CSS/XPath wiersza, zamiast 'contains'
 targets:
   - name: "Analiza matematyczna - cwiczenia gr. 3"
-    url: "https://usosweb.uj.edu.pl/kontroler.php?_action=home/rejestracje/rejestracjaBezposrednia&rej_kod=ZMIEN-MNIE"
+    url: "ZMIEN-MNIE - wklej adres konkretnej rejestracji z paska przegladarki"
     contains:
       - "WMI.IM-AM1-C"
       - '/grupa nr 3\b/'      # \b, zeby nie zlapac "grupa nr 30"
 
   - name: "Angielski B2 - wtorek 11:30"
-    url: "https://usosweb.uj.edu.pl/kontroler.php?_action=home/rejestracje/rejestracjaBezposrednia&rej_kod=ZMIEN-MNIE"
+    url: "ZMIEN-MNIE - wklej adres konkretnej rejestracji z paska przegladarki"
     contains:
       - "JCJ-ANG-B2"
       - "wt. 11:30"
