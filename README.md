@@ -9,6 +9,21 @@ wybranych grupach — wszystkie równolegle, z ponawianiem prób.
 > `interval_ms` poniżej ~400 ms — zbyt agresywne odpytywanie to najprostsza droga
 > do blokady konta.
 
+## Wersja okienkowa
+
+Jeśli nie chcesz dotykać YAML-a:
+
+```bash
+py usos_gui.py
+```
+
+Okno prowadzi przez te same kroki po kolei: przycisk logowania, pole na adres rejestracji,
+lista grup z checkboxami, pole na godzinę startu i przyciski „próba na sucho" oraz
+„START REJESTRACJI". Zaznaczone grupy zapisuje do tego samego `config.yaml`, więc obie
+drogi można mieszać. Na dole widać na żywo log skryptu.
+
+Reszta tego README opisuje wersję z terminala — działa tak samo, tylko więcej widać.
+
 ## 1. Instalacja (jednorazowo)
 
 ```bash

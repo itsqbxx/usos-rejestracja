@@ -1,4 +1,6 @@
 .usos-profile/
 .usos-session.json
+.grupy.json
+.test-profile/
 raport-*.json
 __pycache__/

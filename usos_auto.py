@@ -99,6 +99,24 @@ class Config:
             return local
 
 
+# YAML w CUDZYSLOWIE traktuje "\b", "\t" itd. jak sekwencje sterujace, wiec regex
+# '/grupa nr 3\b/' zamienia sie w tekst ze znakiem backspace i przestaje cokolwiek
+# dopasowywac. Znak sterujacy w warunku nigdy nie jest zamierzony, wiec zamieniamy
+# go z powrotem na zapis z backslashem i mowimy o tym glosno.
+ESCAPE_ODWROTNIE = {"\b": r"\b", "\t": r"\t", "\n": r"\n", "\r": r"\r",
+                    "\f": r"\f", "\v": r"\v", "\a": r"\a", "\0": r"\0"}
+
+
+def odzyskaj_escape(wzorzec: str, nazwa_celu: str | None = None) -> str:
+    if not any(ord(ch) < 32 for ch in wzorzec):
+        return wzorzec
+    naprawiony = "".join(ESCAPE_ODWROTNIE.get(ch, ch) for ch in wzorzec)
+    print(f"! Cel {nazwa_celu!r}: wzorzec zawieral znak sterujacy - poprawiam na "
+          f"{naprawiony!r}. W config.yaml zapisuj regexy w APOSTROFACH, "
+          f"np. '/grupa nr 3\\b/'.", file=sys.stderr)
+    return naprawiony
+
+
 def load_config(path: Path) -> Config:
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     targets = []
@@ -108,13 +126,7 @@ def load_config(path: Path) -> Config:
         contains = t.get("contains") or []
         if isinstance(contains, str):
             contains = [contains]
-        for c in contains:
-            # W YAML-u w cudzyslowie "\b", "\d", "\s" to sekwencje sterujace i psuja
-            # regexy. W apostrofach nic sie nie dzieje - stad ta podpowiedz.
-            if any(ord(ch) < 32 for ch in str(c)):
-                print(f"! Cel {t.get('name')!r}: wzorzec {c!r} zawiera znak sterujacy - "
-                      "w config.yaml zapisz go w APOSTROFACH, np. '/grupa nr 3\\b/'.",
-                      file=sys.stderr)
+        contains = [odzyskaj_escape(str(c), t.get("name")) for c in contains]
         if not contains and not t.get("selector"):
             raise SystemExit(f"Cel #{i} ({t.get('name')}): podaj 'contains' albo 'selector'.")
         targets.append(Target(
@@ -524,16 +536,33 @@ async def open_context(pw, cfg: Config, headless: bool) -> BrowserContext:
     return ctx
 
 
-async def mode_login(cfg: Config, start_url: str) -> None:
+async def mode_login(cfg: Config, start_url: str, no_prompt: bool = False) -> None:
     async with async_playwright() as pw:
         ctx = await open_context(pw, cfg, headless=False)
         page = ctx.pages[0] if ctx.pages else await ctx.new_page()
         await page.goto(start_url, wait_until="domcontentloaded")
         print("\n>>> Zaloguj sie w otwartym oknie (CAS UJ + ewentualne 2FA).")
-        print(">>> Gdy zobaczysz swoje USOSweb, wroc tutaj i nacisnij Enter.\n")
-        await asyncio.get_running_loop().run_in_executor(None, input)
-        logged_out = await page_logged_out(page)
-        report = await session_report(page) if logged_out else ""
+        if no_prompt:
+            # tryb dla GUI: nie ma konsoli na Enter, wiec sami wykrywamy zalogowanie
+            print(">>> Okno zamknie sie samo, gdy wykryje zalogowanie (limit 10 min).\n")
+            koniec = time.time() + 600
+            while time.time() < koniec:
+                await asyncio.sleep(1.0)
+                if page.is_closed():
+                    print(">>> Okno zostalo zamkniete.")
+                    break
+                try:
+                    if not await page_logged_out(page):
+                        print(">>> Wykryto zalogowanie.")
+                        break
+                except Exception:
+                    continue      # strona w trakcie przeladowania
+        else:
+            print(">>> Gdy zobaczysz swoje USOSweb, wroc tutaj i nacisnij Enter.\n")
+            await asyncio.get_running_loop().run_in_executor(None, input)
+        logged_out = True if page.is_closed() else await page_logged_out(page)
+        report = (await session_report(page)
+                  if logged_out and not page.is_closed() else "")
         # ciasteczka sesyjne CAS/USOS nie zawsze przezywaja zamkniecie przegladarki,
         # wiec zapisujemy je osobno i wczytujemy przy kolejnych uruchomieniach
         state_file = HERE / ".usos-session.json"
@@ -552,29 +581,40 @@ CODE_RE = re.compile(r"\b[A-ZŁŚŻĆŃÓĘĄ]{2,}[A-Z0-9ŁŚŻĆŃÓĘĄ._\-]{3
 GROUP_RE = re.compile(r"grupa\s+nr\s*(\d+)", re.I)
 
 
-def suggest_target(text: str, url: str) -> str:
-    """Buduje gotowy do wklejenia blok 'targets' na podstawie tekstu wiersza."""
-    conds, name = [], []
+def target_contains(text: str) -> list[str]:
+    """Warunki 'contains' opisujace wiersz: kod przedmiotu + numer grupy."""
+    out = []
     code = CODE_RE.search(text)
     if code:
-        conds.append(f'"{code.group(0)}"')
-        name.append(code.group(0))
+        out.append(code.group(0))
     grp = GROUP_RE.search(text)
     if grp:
-        # \b, zeby wzorzec na grupe 3 nie zlapal grupy 30; apostrofy, bo w
-        # cudzyslowie YAML zamienilby \b na znak sterujacy
-        conds.append(f"'/grupa nr {grp.group(1)}\\b/'")
-        name.append(f"grupa {grp.group(1)}")
-    if not conds:
-        fragment = text[:40].replace('"', "'").strip()
-        conds.append(f'"{fragment}"')
-        name.append(fragment)
-    return ("  - name: \"{}\"\n"
-            "    url: \"{}\"\n"
-            "    contains: [{}]").format(" ".join(name), url, ", ".join(conds))
+        out.append(f"/grupa nr {grp.group(1)}\\b/")   # \b: grupa 3 != grupa 30
+    return out or [text[:40].strip()]
 
 
-async def mode_list(cfg: Config, url: str) -> None:
+def target_name(text: str) -> str:
+    parts = []
+    code = CODE_RE.search(text)
+    if code:
+        parts.append(code.group(0))
+    grp = GROUP_RE.search(text)
+    if grp:
+        parts.append(f"grupa {grp.group(1)}")
+    return " ".join(parts) or text[:40].strip()
+
+
+def suggest_target(text: str, url: str) -> str:
+    """Buduje gotowy do wklejenia blok 'targets' na podstawie tekstu wiersza."""
+    # regexy w apostrofach - w cudzyslowie YAML zjadlby \b jako znak sterujacy
+    conds = ", ".join(f"'{c}'" if c.startswith("/") else f'"{c}"'
+                      for c in target_contains(text))
+    return ('  - name: "{}"\n'
+            '    url: "{}"\n'
+            "    contains: [{}]").format(target_name(text), url, conds)
+
+
+async def mode_list(cfg: Config, url: str, json_out: str | None = None) -> None:
     async with async_playwright() as pw:
         ctx = await open_context(pw, cfg, headless=False)
         page = ctx.pages[0] if ctx.pages else await ctx.new_page()
@@ -597,6 +637,14 @@ async def mode_list(cfg: Config, url: str) -> None:
             print("\nSkopiuj bloki interesujacych Cie grup do sekcji 'targets:' "
                   "w config.yaml.\nSprawdz, czy 'contains' faktycznie opisuje "
                   "wlasciwa grupe - to tylko propozycja.")
+        if json_out:
+            # strukturalne wyjscie dla GUI
+            data = [{"text": r["text"], "registered": r["registered"], "url": url,
+                     "name": target_name(r["text"]),
+                     "contains": target_contains(r["text"])} for r in rows]
+            Path(json_out).write_text(json.dumps(data, ensure_ascii=False, indent=2),
+                                      encoding="utf-8")
+            print(f"\nZapisano {len(data)} grup do {json_out}")
         await ctx.close()
 
 
@@ -653,6 +701,10 @@ def main() -> None:
     ap.add_argument("mode", choices=["login", "list", "run", "test"])
     ap.add_argument("-c", "--config", default=str(HERE / "config.yaml"))
     ap.add_argument("--url", help="adres strony rejestracji (dla 'login' i 'list')")
+    ap.add_argument("--json-out", dest="json_out",
+                    help="dla 'list': zapisz znalezione grupy do pliku JSON (uzywa GUI)")
+    ap.add_argument("--no-prompt", dest="no_prompt", action="store_true",
+                    help="dla 'login': nie czekaj na Enter, sam wykryj zalogowanie (GUI)")
     args = ap.parse_args()
 
     cfg_path = Path(args.config)
@@ -666,13 +718,13 @@ def main() -> None:
     if args.mode == "login":
         # Zawsze startujemy ze strony rejestracji bezposrednich, a nie z adresu
         # celu z configu - ten bywa jeszcze niewypelnionym wzorcem i konczy sie 404.
-        asyncio.run(mode_login(cfg, args.url or REJESTRACJE_URL))
+        asyncio.run(mode_login(cfg, args.url or REJESTRACJE_URL, args.no_prompt))
     elif args.mode == "list":
         url = args.url or (cfg.targets[0].url if cfg_path.exists() else None)
         if not url:
             raise SystemExit("Podaj --url do strony rejestracji.")
         check_urls([url])
-        asyncio.run(mode_list(cfg, url))
+        asyncio.run(mode_list(cfg, url, args.json_out))
     else:
         check_urls([t.url for t in cfg.targets])
         asyncio.run(mode_run(cfg, dry_run=(args.mode == "test")))
