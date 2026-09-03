@@ -35,7 +35,7 @@ Oba te pliki to w praktyce klucz do Twojego konta USOS — `.gitignore` trzyma j
 repozytorium i tak ma zostać. Sesja CAS i tak wygasa, więc **`login` powtórz tego
 samego dnia co rejestrację**, najlepiej krótko przed nią.
 
-## 3. Znajdź swoje grupy
+## 3. Znajdź swoje grupy i wygeneruj wpisy
 
 Wejdź w USOSweb w **Dla studentów → Rejestracja → Rejestracja bezpośrednia do grup**,
 otwórz interesującą Cię rejestrację i skopiuj adres z paska przeglądarki. Potem:
@@ -44,9 +44,21 @@ otwórz interesującą Cię rejestrację i skopiuj adres z paska przeglądarki. 
 python usos_auto.py list --url "TU_WKLEJ_ADRES"
 ```
 
-Skrypt wypisze wszystkie wiersze grup, które mają przycisk rejestracji. Z każdego
-wybierz fragmenty tekstu jednoznacznie identyfikujące grupę (kod przedmiotu, numer
-grupy, godzinę, nazwisko prowadzącego) i wpisz je do `config.yaml` jako `contains`.
+Skrypt wypisze każdy wiersz grupy, który ma przycisk rejestracji, a pod nim **gotowy
+blok do wklejenia** do `config.yaml`:
+
+```
+--- 1 ---
+WMI.IM-AM1-C grupa nr 3 pon. 8:00, dr Kowalski 15/20
+
+  - name: "WMI.IM-AM1-C grupa 3"
+    url: "https://usosweb.uj.edu.pl/kontroler.php?_action=..."
+    contains: ["WMI.IM-AM1-C", '/grupa nr 3/']
+```
+
+Skopiuj bloki interesujących Cię grup do sekcji `targets:`. Propozycja bierze kod
+przedmiotu i numer grupy — sprawdź, czy to naprawdę odróżnia Twoją grupę od reszty,
+i w razie potrzeby dorzuć np. godzinę albo nazwisko prowadzącego.
 
 ## 4. Uzupełnij `config.yaml`
 
@@ -91,6 +103,35 @@ Odpal 5–10 minut wcześniej i **zostaw komputer włączonego** (bez usypiania)
 4. klika „zarejestruj”, obsługuje ekran potwierdzenia i weryfikuje wynik (po odświeżeniu przy grupie musi pojawić się „wyrejestruj”),
 5. ponawia aż do sukcesu lub `max_seconds`,
 6. drukuje podsumowanie i zapisuje `raport-*.json`.
+
+## Jak sprawdzić, że to zadziała
+
+**Bez czekania na rejestrację** — w repozytorium jest `makieta_usos.py`, lokalna atrapa
+strony USOS: zagnieżdżone tabele, ikony „zarejestruj", ekran potwierdzenia i rejestracja
+otwierająca się dopiero po zadanym czasie. Uruchom ją w jednym terminalu:
+
+```bash
+py makieta_usos.py 15 8765
+```
+
+W drugim wyceluj w nią skrypt: skopiuj `config.yaml`, wstaw
+`url: "http://127.0.0.1:8765/rejestracja"`, `start_time: "+15s"` oraz
+`contains: ["WMI.IM-AM1-C", '/grupa nr 3/']` i odpal `run`. Zobaczysz całą mechanikę:
+odliczanie, ponawianie prób przed otwarciem, kliknięcie, ekran potwierdzenia i weryfikację.
+To sprawdza skrypt, nie Twoją konfigurację.
+
+**Na prawdziwym USOS-ie, gdy rejestracja jest otwarta** — to jedyny sposób na sprawdzenie,
+czy skrypt rozpoznaje realny układ strony:
+
+1. `list` wypisuje Twoje grupy → czyta stronę poprawnie
+2. `test` mówi `[DRY-RUN] tutaj bym kliknal: 'zarejestruj'` → trafia we właściwy wiersz
+   i widzi przycisk
+
+Dry-run **nigdy** nie klika, więc możesz go puścić nawet w trakcie trwającej rejestracji —
+nie zapisze Cię przypadkiem ani nie zajmie miejsca.
+
+**Tuż przed właściwą rejestracją:** powtórz `login` (ciasteczka CAS wygasają), potem `test`,
+i dopiero wtedy `run`.
 
 ## Rozwiązywanie problemów
 

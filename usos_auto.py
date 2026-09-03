@@ -547,6 +547,33 @@ async def mode_login(cfg: Config, start_url: str) -> None:
               "Uwaga: strona nadal wyglada na wylogowana - sprobuj jeszcze raz." + report)
 
 
+# kod przedmiotu w USOS: WMI.IM-AM1-C, JCJ-ANG-B2, WFAIS.IF-B210.0 itp.
+CODE_RE = re.compile(r"\b[A-ZŁŚŻĆŃÓĘĄ]{2,}[A-Z0-9ŁŚŻĆŃÓĘĄ._\-]{3,}\b")
+GROUP_RE = re.compile(r"grupa\s+nr\s*(\d+)", re.I)
+
+
+def suggest_target(text: str, url: str) -> str:
+    """Buduje gotowy do wklejenia blok 'targets' na podstawie tekstu wiersza."""
+    conds, name = [], []
+    code = CODE_RE.search(text)
+    if code:
+        conds.append(f'"{code.group(0)}"')
+        name.append(code.group(0))
+    grp = GROUP_RE.search(text)
+    if grp:
+        # \b, zeby wzorzec na grupe 3 nie zlapal grupy 30; apostrofy, bo w
+        # cudzyslowie YAML zamienilby \b na znak sterujacy
+        conds.append(f"'/grupa nr {grp.group(1)}\\b/'")
+        name.append(f"grupa {grp.group(1)}")
+    if not conds:
+        fragment = text[:40].replace('"', "'").strip()
+        conds.append(f'"{fragment}"')
+        name.append(fragment)
+    return ("  - name: \"{}\"\n"
+            "    url: \"{}\"\n"
+            "    contains: [{}]").format(" ".join(name), url, ", ".join(conds))
+
+
 async def mode_list(cfg: Config, url: str) -> None:
     async with async_playwright() as pw:
         ctx = await open_context(pw, cfg, headless=False)
@@ -564,9 +591,12 @@ async def mode_list(cfg: Config, url: str) -> None:
                   "z widoczna lista grup.")
         for i, r in enumerate(rows, 1):
             flag = " [JUZ ZAREJESTROWANY]" if r["registered"] else ""
-            print(f"\n--- {i}{flag} ---\n{r['text']}")
-        print("\nSkopiuj z powyzszych fragmenty jednoznacznie identyfikujace grupe "
-              "do pola 'contains' w config.yaml (np. kod przedmiotu + 'grupa nr 3').")
+            print(f"\n--- {i}{flag} ---\n{r['text']}\n")
+            print(suggest_target(r["text"], url))
+        if rows:
+            print("\nSkopiuj bloki interesujacych Cie grup do sekcji 'targets:' "
+                  "w config.yaml.\nSprawdz, czy 'contains' faktycznie opisuje "
+                  "wlasciwa grupe - to tylko propozycja.")
         await ctx.close()
 
 
