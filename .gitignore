@@ -1,3 +1,4 @@
 .usos-profile/
+.usos-session.json
 raport-*.json
 __pycache__/

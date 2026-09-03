@@ -27,8 +27,13 @@ python usos_auto.py login
 
 Otworzy się okno przeglądarki. Zaloguj się przez CAS UJ (login + hasło + ewentualne
 2FA — wpisujesz je **Ty**, skrypt nigdy nie dotyka Twoich danych). Gdy zobaczysz
-USOSweb, wróć do terminala i naciśnij Enter. Sesja zapisuje się w katalogu
-`.usos-profile/` obok skryptu.
+USOSweb, wróć do terminala i naciśnij Enter. Sesja zapisuje się w dwóch miejscach:
+profil przeglądarki `.usos-profile/` oraz `.usos-session.json` z ciasteczkami
+(te sesyjne nie zawsze przeżywają zamknięcie okna, więc dokładamy je przy starcie).
+
+Oba te pliki to w praktyce klucz do Twojego konta USOS — `.gitignore` trzyma je poza
+repozytorium i tak ma zostać. Sesja CAS i tak wygasa, więc **`login` powtórz tego
+samego dnia co rejestrację**, najlepiej krótko przed nią.
 
 ## 3. Znajdź swoje grupy
 

@@ -323,6 +323,16 @@ async def page_logged_out(page: Page) -> bool:
     return False   # w razie watpliwosci nie przerywamy - blad i tak wyjdzie dalej
 
 
+async def session_report(page: Page) -> str:
+    """Krotki opis tego, co skrypt naprawde widzi - do diagnozy problemow z sesja."""
+    try:
+        body = (await page.inner_text("body")).replace("\n", " ")
+        body = re.sub(r"\s+", " ", body).strip()[:200]
+    except Exception as e:
+        body = f"(nie udalo sie odczytac tresci: {e})"
+    return f"\n    adres koncowy: {page.url}\n    poczatek strony: {body!r}"
+
+
 async def confirm_if_needed(page: Page) -> None:
     """USOS czasem pokazuje ekran potwierdzenia - klikamy przycisk potwierdzajacy."""
     try:
@@ -376,7 +386,8 @@ async def work_target(context: BrowserContext, t: Target, cfg: Config,
 
     if await page_logged_out(page):
         t.status, t.detail = "blad", "brak sesji - zaloguj sie (tryb 'login')"
-        log("!! Nie jestes zalogowany. Uruchom: python usos_auto.py login", tag)
+        log("!! Nie jestes zalogowany. Uruchom: python usos_auto.py login"
+            + await session_report(page), tag)
         return
 
     row, why = await resolve_row(page, t)
@@ -490,12 +501,23 @@ async def work_target(context: BrowserContext, t: Target, cfg: Config,
 async def open_context(pw, cfg: Config, headless: bool) -> BrowserContext:
     profile = (HERE / cfg.profile_dir).resolve()
     profile.mkdir(parents=True, exist_ok=True)
-    return await pw.chromium.launch_persistent_context(
+    ctx = await pw.chromium.launch_persistent_context(
         user_data_dir=str(profile),
         headless=headless,
         viewport={"width": 1440, "height": 900},
         args=["--disable-blink-features=AutomationControlled"],
     )
+    # dolozenie ciasteczek zapisanych przy logowaniu (sesyjne gina przy zamknieciu okna)
+    state_file = HERE / ".usos-session.json"
+    if state_file.exists():
+        try:
+            cookies = json.loads(state_file.read_text(encoding="utf-8")).get("cookies") or []
+            if cookies:
+                await ctx.add_cookies(cookies)
+                log(f"wczytano {len(cookies)} ciasteczek z {state_file.name}")
+        except Exception as e:
+            log(f"! nie udalo sie wczytac {state_file.name}: {e}")
+    return ctx
 
 
 async def mode_login(cfg: Config, start_url: str) -> None:
@@ -507,10 +529,18 @@ async def mode_login(cfg: Config, start_url: str) -> None:
         print(">>> Gdy zobaczysz swoje USOSweb, wroc tutaj i nacisnij Enter.\n")
         await asyncio.get_running_loop().run_in_executor(None, input)
         logged_out = await page_logged_out(page)
+        report = await session_report(page) if logged_out else ""
+        # ciasteczka sesyjne CAS/USOS nie zawsze przezywaja zamkniecie przegladarki,
+        # wiec zapisujemy je osobno i wczytujemy przy kolejnych uruchomieniach
+        state_file = HERE / ".usos-session.json"
+        try:
+            await ctx.storage_state(path=str(state_file))
+            saved = f" Ciasteczka zapisane w {state_file.name}."
+        except Exception as e:
+            saved = f" (nie udalo sie zapisac ciasteczek: {e})"
         await ctx.close()
-        print("Sesja zapisana."
-              if not logged_out else
-              "Uwaga: strona nadal wyglada na wylogowana - sprobuj jeszcze raz.")
+        print(("Sesja zapisana." + saved) if not logged_out else
+              "Uwaga: strona nadal wyglada na wylogowana - sprobuj jeszcze raz." + report)
 
 
 async def mode_list(cfg: Config, url: str) -> None:
@@ -519,7 +549,8 @@ async def mode_list(cfg: Config, url: str) -> None:
         page = ctx.pages[0] if ctx.pages else await ctx.new_page()
         await page.goto(url, wait_until="domcontentloaded", timeout=45000)
         if await page_logged_out(page):
-            print("Nie jestes zalogowany. Uruchom najpierw: python usos_auto.py login")
+            print("Nie jestes zalogowany. Uruchom najpierw: python usos_auto.py login"
+                  + await session_report(page))
             await ctx.close()
             return
         rows = await page.evaluate(JS_DUMP_ROWS)
