@@ -46,8 +46,11 @@ except ImportError:
 
 
 HERE = Path(__file__).resolve().parent
-# teksty swiadczace o tym, ze nie jestesmy zalogowani
-LOGGED_OUT_MARKERS = ("centralny system uwierzytelniania", "zaloguj się", "cas.uj.edu.pl")
+# O stanie sesji swiadczy link wyloguj/zaloguj w naglowku. Uwaga: napis
+# "Centralny System Uwierzytelniania" jest na KAZDEJ stronie USOSweb UJ,
+# takze po zalogowaniu - nie nadaje sie na sygnal wylogowania.
+LOGGED_IN_MARKERS = ("wyloguj", "log out", "logout")
+LOGGED_OUT_MARKERS = ("zaloguj", "log in", "sign in")
 
 
 # --------------------------------------------------------------------------- #
@@ -307,13 +310,17 @@ async def resolve_row(page: Page, t: Target):
 
 
 async def page_logged_out(page: Page) -> bool:
-    if re.search(r"(cas|login)\.uj\.edu\.pl|logowanie", page.url, re.I):
+    if re.search(r"(cas|login)\.uj\.edu\.pl|_action=logowanie", page.url, re.I):
         return True
     try:
         body = (await page.inner_text("body")).lower()
     except Exception:
         return False
-    return any(m in body for m in LOGGED_OUT_MARKERS)
+    if any(m in body for m in LOGGED_IN_MARKERS):   # jest link wylogowania
+        return False
+    if any(m in body for m in LOGGED_OUT_MARKERS):  # jest link logowania
+        return True
+    return False   # w razie watpliwosci nie przerywamy - blad i tak wyjdzie dalej
 
 
 async def confirm_if_needed(page: Page) -> None:
