@@ -1,0 +1,33 @@
+# Konfiguracja automatycznej rejestracji USOSweb UJ
+# ---------------------------------------------------------------------------
+
+# Moment otwarcia rejestracji (czas serwera USOS, strefa podana nizej).
+# Mozna tez wpisac "now" albo "+30s" do testow.
+start_time: "2026-09-15 18:00:00"
+timezone: "Europe/Warsaw"
+
+lead_ms: 400          # zaczynamy odswiezac tyle ms przed godzina startu
+interval_ms: 700      # odstep miedzy kolejnymi probami (nie schodz ponizej ~400 ms)
+max_seconds: 300      # jak dlugo probowac po starcie
+headless: false       # false = widzisz okno przegladarki (zalecane)
+keepalive_s: 120      # co ile sekund odswiezac strone przed startem (podtrzymanie sesji)
+
+# Kazdy cel = jedna grupa, ktora chcesz zlapac.
+#   url      - adres strony "Rejestracja bezposrednia do grup" (skopiuj z przegladarki)
+#   contains - fragmenty tekstu, ktore RAZEM wystepuja tylko w wierszu tej grupy
+#              (podejrzyj je komenda:  python usos_auto.py list --url "...")
+#              Wpis w formie /wzorzec/ jest traktowany jak wyrazenie regularne -
+#              zapisuj go w APOSTROFACH, bo w cudzyslowie YAML zjada \b, \d, \s.
+#   selector - alternatywnie wlasny selektor CSS/XPath wiersza, zamiast 'contains'
+targets:
+  - name: "Analiza matematyczna - cwiczenia gr. 3"
+    url: "https://usosweb.uj.edu.pl/kontroler.php?_action=home/rejestracje/rejestracjaBezposrednia&rej_kod=ZMIEN-MNIE"
+    contains:
+      - "WMI.IM-AM1-C"
+      - '/grupa nr 3\b/'      # \b, zeby nie zlapac "grupa nr 30"
+
+  - name: "Angielski B2 - wtorek 11:30"
+    url: "https://usosweb.uj.edu.pl/kontroler.php?_action=home/rejestracje/rejestracjaBezposrednia&rej_kod=ZMIEN-MNIE"
+    contains:
+      - "JCJ-ANG-B2"
+      - "wt. 11:30"
