@@ -1,6 +1,15 @@
-.usos-profile/
-.usos-session.json
-.grupy.json
-.test-profile/
-raport-*.json
+# --- Dane osobiste i sesja USOS: NIGDY nie commitować ---
+cookie.txt
+.profil_przegladarki/
+config.json
+config.json.bak
+usos_log.txt
+
+# --- Paczka dla znajomych (generowana) ---
+do_wyslania/
+
+# --- Python ---
 __pycache__/
+*.py[cod]
+.venv/
+venv/

@@ -1,168 +1,91 @@
-# Automatyczna rejestracja na zajęcia — USOSweb UJ
+# USOS group registration bot (Jagiellonian University)
 
-Skrypt loguje się Twoją sesją do USOSweb, czeka do sekundy otwarcia rejestracji
-(zsynchronizowanej z **zegarem serwera**, nie Twoim) i klika „zarejestruj” przy
-wybranych grupach — wszystkie równolegle, z ponawianiem prób.
+Automates **first-come-first-served direct group registration** ("rejestracja bezpośrednia do grup")
+in USOSweb at the Jagiellonian University: it waits for the registration round to open and submits
+the registration a fraction of a second later — all from a small desktop GUI.
 
-> **Zanim użyjesz:** to obchodzenie ręcznego wyścigu o miejsca. Regulaminy uczelni
-> potrafią zabraniać automatów; ryzyko po Twojej stronie. Nie zjeżdżaj z
-> `interval_ms` poniżej ~400 ms — zbyt agresywne odpytywanie to najprostsza droga
-> do blokady konta.
+Built for personal use and verified in a live registration round (September 2026).
+The UI and messages are in Polish.
 
-## Wersja okienkowa
+## Features
 
-Jeśli nie chcesz dotykać YAML-a:
+- **Desktop GUI** (tkinter): log in, pick courses, choose groups with backups, dry-run test,
+  start/stop, live log with a countdown to the round opening.
+- **Login through a real browser window** (Playwright + Microsoft Edge). The password is typed only
+  on the university's login page — the tool never sees or stores it. If the session expires while
+  waiting, the login window re-opens automatically and the new session is picked up.
+- **Everything is read live from USOSweb**: course list, groups, seat counts, study-programme id and
+  the round opening time. Nothing about a particular round is hard-coded.
+- **Server clock synchronisation.** USOSweb exposes the server time only with 1-second resolution.
+  Each request yields an interval of possible clock offsets
+  `[server_second − t_received, server_second + 1 − t_sent]`; intersecting the intervals from
+  ~15 requests spaced 1.09 s apart (so they hit different sub-second phases) narrows the estimate to
+  roughly the network round-trip (≈ ±50 ms). The first attempt fires ~0.3 s after the opening.
+- **Respects the USOS rate limit** (more than 10 attempts in ~20 s triggers a temporary block):
+  a global limiter allows at most 8 attempts per 20 s across all courses, and while the round is
+  not confirmed open only one "leader" course re-probes so the others don't waste attempts.
+- **Backup groups**: if a group fills up, seat counts are re-read every ~3 s and the next group from
+  the preference list is used.
+- **Pre-flight probe**: one real registration attempt before the round opens verifies the session,
+  CSRF token and payload — the expected answer is *"no round is open at the moment"*.
 
-```bash
-py usos_gui.py
-```
+## How it works
 
-Okno prowadzi przez te same kroki po kolei: przycisk logowania, pole na adres rejestracji,
-lista grup z checkboxami, pole na godzinę startu i przyciski „próba na sucho" oraz
-„START REJESTRACJI". Zaznaczone grupy zapisuje do tego samego `config.yaml`, więc obie
-drogi można mieszać. Na dole widać na żywo log skryptu.
+1. `wyborPrzedmiotu` page → list of courses in the registration + the student's programme id (`prgos_id`).
+2. `grupyPrzedmiotu` page (with `odczyt=0` and `prgos_id`) → the registration form: hidden fields,
+   CSRF token, class ids and groups, plus the round countdown (`data-date` / `data-now`).
+3. Clock sync → wait → `POST brdg2/zarejestruj` as an AJAX form submit; USOSweb answers with JSON
+   `{"type": "v" | "!", "pl": "...", "en": "..."}` (`v` = success).
 
-Reszta tego README opisuje wersję z terminala — działa tak samo, tylko więcej widać.
-
-## 1. Instalacja (jednorazowo)
-
-```bash
-pip install -r requirements.txt
-```
-
-```bash
-python -m playwright install chromium
-```
-
-## 2. Logowanie (raz, najlepiej tego samego dnia)
-
-```bash
-python usos_auto.py login
-```
-
-Otworzy się okno przeglądarki. Zaloguj się przez CAS UJ (login + hasło + ewentualne
-2FA — wpisujesz je **Ty**, skrypt nigdy nie dotyka Twoich danych). Gdy zobaczysz
-USOSweb, wróć do terminala i naciśnij Enter. Sesja zapisuje się w dwóch miejscach:
-profil przeglądarki `.usos-profile/` oraz `.usos-session.json` z ciasteczkami
-(te sesyjne nie zawsze przeżywają zamknięcie okna, więc dokładamy je przy starcie).
-
-Oba te pliki to w praktyce klucz do Twojego konta USOS — `.gitignore` trzyma je poza
-repozytorium i tak ma zostać. Sesja CAS i tak wygasa, więc **`login` powtórz tego
-samego dnia co rejestrację**, najlepiej krótko przed nią.
-
-## 3. Znajdź swoje grupy i wygeneruj wpisy
-
-Wejdź w USOSweb w **Dla studentów → Rejestracja → Rejestracja bezpośrednia do grup**,
-otwórz interesującą Cię rejestrację i skopiuj adres z paska przeglądarki. Potem:
-
-```bash
-python usos_auto.py list --url "TU_WKLEJ_ADRES"
-```
-
-Skrypt wypisze każdy wiersz grupy, który ma przycisk rejestracji, a pod nim **gotowy
-blok do wklejenia** do `config.yaml`:
+## Setup (Windows 10/11)
 
 ```
---- 1 ---
-WMI.IM-AM1-C grupa nr 3 pon. 8:00, dr Kowalski 15/20
-
-  - name: "WMI.IM-AM1-C grupa 3"
-    url: "https://usosweb.uj.edu.pl/kontroler.php?_action=..."
-    contains: ["WMI.IM-AM1-C", '/grupa nr 3/']
+python -m pip install -r requirements.txt
 ```
 
-Skopiuj bloki interesujących Cię grup do sekcji `targets:`. Propozycja bierze kod
-przedmiotu i numer grupy — sprawdź, czy to naprawdę odróżnia Twoją grupę od reszty,
-i w razie potrzeby dorzuć np. godzinę albo nazwisko prowadzącego.
+Microsoft Edge is used for the login window (Chrome works too), so no extra browser download is needed.
 
-## 4. Uzupełnij `config.yaml`
+## Usage
 
-```yaml
-start_time: "2026-09-15 18:00:00"   # moment otwarcia rejestracji
-targets:
-  - name: "Analiza — ćw. gr. 3"
-    url: "https://usosweb.uj.edu.pl/kontroler.php?_action=home/rejestracje/rejestracjaBezposrednia&rej_kod=..."
-    contains: ["WMI.IM-AM1-C", '/grupa nr 3\b/']
+Double-click **`Rejestracja USOS.bat`** (or run `python usos_gui.py`), then:
+
+1. *Zaloguj przez przeglądarkę* — log in on the university page.
+2. Tick courses (most important first) and pick groups (1st choice + optional backups), *Zapisz ustawienia*.
+3. *Test (próba przed turą)* — expect `Żadna tura podanej rejestracji bezpośredniej nie jest teraz otwarta`.
+4. *START* a few minutes before the round opens and leave it running.
+
+Command-line equivalents:
+
+```
+python usos_rej.py --login      # log in, store the session
+python usos_rej.py --kreator    # interactive course/group picker -> config.json
+python usos_rej.py --dry-run    # show the plan, send nothing
+python usos_rej.py --probe      # one attempt per course before the round opens
+python usos_rej.py              # wait for the round and register
 ```
 
-Wszystkie warunki z `contains` muszą wystąpić w tym samym wierszu tabeli
-(porównanie ignoruje wielkość liter). Jeśli dopasowań jest kilka, skrypt bierze
-pierwsze i głośno to zgłasza w logu — dodaj wtedy bardziej unikalny fragment.
+See `config.example.json` for the settings format (`config.json` is created by the GUI).
 
-Wpis w formie `/wzorzec/` to **wyrażenie regularne**. Przydaje się, gdy krótszy tekst
-jest podciągiem dłuższego: samo `"grupa nr 3"` złapie też `grupa nr 30`, a `'/grupa nr 3\b/'`
-już nie. **Regexy zapisuj w apostrofach** — w cudzysłowie YAML zamienia `\b`, `\d`, `\s`
-na znaki sterujące i wzorzec przestaje działać (skrypt to wykrywa i ostrzega).
+## Tests
 
-## 5. Test na sucho
+End-to-end tests run against a local mock of USOSweb (no real requests):
 
-```bash
-python usos_auto.py test
+```
+python tests/test_rej.py     # parsing, rate limiter, wizard, probe, timing with a skewed server clock,
+                             # deliberately early first shot
+python tests/test_login.py   # browser login + automatic re-login (headless Edge)
+python tests/test_gui.py     # GUI flows: auto-login check, course/group selection, probe, start/stop
 ```
 
-To samo co bieg właściwy, ale **bez klikania** — skrypt tylko sprawdza, czy znajduje
-wiersz i przycisk. Ustaw wtedy `start_time: "+10s"`, żeby nie czekać. Zrób to
-koniecznie przed prawdziwą rejestracją.
+`test_rej.py` takes ~1.5 min (it waits for two simulated round openings); `test_gui.py` briefly opens a window.
 
-## 6. Bieg właściwy
+## Privacy
 
-```bash
-python usos_auto.py run
-```
+The tool stores your session locally in `cookie.txt` and `.profil_przegladarki/`, your choices in
+`config.json` and a log in `usos_log.txt`. All of them are in `.gitignore` — never commit or share them.
 
-Odpal 5–10 minut wcześniej i **zostaw komputer włączonego** (bez usypiania). Skrypt:
+## Disclaimer
 
-1. mierzy różnicę między Twoim zegarem a zegarem serwera USOS,
-2. co `keepalive_s` odświeża strony, żeby sesja nie wygasła (i głośno krzyczy w logu, jeśli wygaśnie),
-3. o `start_time` minus `lead_ms` rusza z próbami — każdy cel w osobnej karcie, równolegle,
-4. klika „zarejestruj”, obsługuje ekran potwierdzenia i weryfikuje wynik (po odświeżeniu przy grupie musi pojawić się „wyrejestruj”),
-5. ponawia aż do sukcesu lub `max_seconds`,
-6. drukuje podsumowanie i zapisuje `raport-*.json`.
-
-## Jak sprawdzić, że to zadziała
-
-**Bez czekania na rejestrację** — w repozytorium jest `makieta_usos.py`, lokalna atrapa
-strony USOS: zagnieżdżone tabele, ikony „zarejestruj", ekran potwierdzenia i rejestracja
-otwierająca się dopiero po zadanym czasie. Uruchom ją w jednym terminalu:
-
-```bash
-py makieta_usos.py 15 8765
-```
-
-W drugim wyceluj w nią skrypt: skopiuj `config.yaml`, wstaw
-`url: "http://127.0.0.1:8765/rejestracja"`, `start_time: "+15s"` oraz
-`contains: ["WMI.IM-AM1-C", '/grupa nr 3/']` i odpal `run`. Zobaczysz całą mechanikę:
-odliczanie, ponawianie prób przed otwarciem, kliknięcie, ekran potwierdzenia i weryfikację.
-To sprawdza skrypt, nie Twoją konfigurację.
-
-**Na prawdziwym USOS-ie, gdy rejestracja jest otwarta** — to jedyny sposób na sprawdzenie,
-czy skrypt rozpoznaje realny układ strony:
-
-1. `list` wypisuje Twoje grupy → czyta stronę poprawnie
-2. `test` mówi `[DRY-RUN] tutaj bym kliknal: 'zarejestruj'` → trafia we właściwy wiersz
-   i widzi przycisk
-
-Dry-run **nigdy** nie klika, więc możesz go puścić nawet w trakcie trwającej rejestracji —
-nie zapisze Cię przypadkiem ani nie zajmie miejsca.
-
-**Tuż przed właściwą rejestracją:** powtórz `login` (ciasteczka CAS wygasają), potem `test`,
-i dopiero wtedy `run`.
-
-## Rozwiązywanie problemów
-
-| Objaw | Co zrobić |
-|---|---|
-| „nie znaleziono wiersza” | Zbyt wąskie/literówkowe `contains`. Uruchom `list` i skopiuj tekst dokładnie (polskie znaki mają znaczenie). |
-| „N dopasowań”, N > 1 | Dodaj kolejny, bardziej unikalny fragment do `contains`. |
-| „wzorzec … zawiera znak sterujący” | Regex w cudzysłowie — przepisz go na apostrofy. |
-| „brak sesji / sesja wygasła” | Powtórz `python usos_auto.py login` tuż przed rejestracją. |
-| „brak przycisku rejestracji” | Rejestracja jeszcze nieotwarta albo brak miejsc — skrypt i tak ponawia próby. |
-| Zupełnie inny wygląd strony | Podaj własny `selector` (CSS/XPath do `<tr>` grupy) zamiast `contains`. |
-
-## Ograniczenia
-
-- Obsługuje **rejestrację bezpośrednią do grup** (klikany koszyk przy grupie). Rejestracja
-  żetonowa dwuetapowa czy giełda grup mogą wymagać innych selektorów — wtedy użyj `selector`.
-- Dokładność synchronizacji zegara to ~0,5 s (nagłówek HTTP `Date` ma rozdzielczość sekundy);
-  dlatego skrypt startuje odrobinę wcześniej i ponawia próby.
-- Nie omija captcha ani kolejki USOS — jeśli serwer wystawi kolejkę, po prostu czeka i próbuje dalej.
+Personal/educational project. It uses only your own account, does not bypass any security measure
+and deliberately stays below the server's rate limits. Check your university's IT regulations before
+using automated tools. Not affiliated with the Jagiellonian University or MUCI (the USOS developers).

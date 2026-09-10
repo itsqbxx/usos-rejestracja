@@ -1,0 +1,22 @@
+{
+  "rej_kod": "WFAIS_26/27Z_INF",
+  "cdyd_kod": "26/27Z",
+  "przedmioty": [
+    {
+      "nazwa": "Bazy danych",
+      "prz_kod": "WFAIS.IF-C202.0",
+      "grupy": {
+        "Wykład": [1],
+        "Ćwiczenia": [3, 4]
+      }
+    },
+    {
+      "nazwa": "Język Python",
+      "prz_kod": "WFAIS.IF-X204.0",
+      "grupy": {
+        "Wykład": [1],
+        "Laboratorium": [3, 6]
+      }
+    }
+  ]
+}
